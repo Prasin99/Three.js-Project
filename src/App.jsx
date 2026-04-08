@@ -313,7 +313,7 @@ export default function MultitaskingTestCompetitorStyle() {
   const [lightsEvent, setLightsEvent] = useState({ row: 0, col: 0, color: "blue", active: false });
   const [pulse, setPulse] = useState(null);
 
-  const [tanks, setTanks] = useState([78, 100]);
+  const [tanks, setTanks] = useState([78, 100, 100]);
   const [activeTankIndex, setActiveTankIndex] = useState(0);
   const [refillingTankIndex, setRefillingTankIndex] = useState(null);
   const [tankBlinkOn, setTankBlinkOn] = useState(true);
@@ -420,7 +420,7 @@ export default function MultitaskingTestCompetitorStyle() {
         const next = [...prev];
 
         if (refillingTankIndex !== null) {
-          const refillSpeed = refillingTankIndex === 0 ? 7.5 : 7.0;
+          const refillSpeed = refillingTankIndex === 0 ? 7.5 : refillingTankIndex === 1 ? 7.0 : 7.25;
           next[refillingTankIndex] = clamp(next[refillingTankIndex] + refillSpeed, 0, 100);
 
           if (next[refillingTankIndex] >= 100) {
@@ -435,12 +435,12 @@ export default function MultitaskingTestCompetitorStyle() {
 
         if (activeTankIndex === null) {
           if (Date.now() >= nextTankStartRef.current) {
-            setActiveTankIndex(Math.random() > 0.5 ? 0 : 1);
+            setActiveTankIndex(Math.floor(Math.random() * 3));
           }
           return next;
         }
 
-        const drainSpeed = activeTankIndex === 0 ? 0.72 : 0.62;
+        const drainSpeed = activeTankIndex === 0 ? 0.72 : activeTankIndex === 1 ? 0.62 : 0.67;
         next[activeTankIndex] = clamp(next[activeTankIndex] - drainSpeed - rand(0.01, 0.08), 0, 100);
         return next;
       });
@@ -479,15 +479,54 @@ export default function MultitaskingTestCompetitorStyle() {
 
   useEffect(() => {
     if (screen !== "live" || !running) return;
-    const lightLoop = setInterval(() => {
+
+    let cancelled = false;
+    let yellowTimeout = null;
+    let blueTimeout = null;
+    let nextCycleTimeout = null;
+
+    const runLightSequence = () => {
+      if (cancelled) return;
+
+      const yellowRow = Math.random() > 0.5 ? 1 : 0;
+      const yellowCol = Math.floor(Math.random() * 4);
+
       setLightsEvent({
-        row: Math.random() > 0.5 ? 1 : 0,
-        col: Math.floor(Math.random() * 3),
-        color: Math.random() > 0.38 ? "blue" : "yellow",
+        row: yellowRow,
+        col: yellowCol,
+        color: "yellow",
         active: true,
       });
-    }, 1650);
-    return () => clearInterval(lightLoop);
+
+      blueTimeout = setTimeout(() => {
+        if (cancelled) return;
+
+        const blueRow = Math.random() > 0.5 ? 1 : 0;
+        const blueCol = Math.floor(Math.random() * 4);
+
+        setLightsEvent({
+          row: blueRow,
+          col: blueCol,
+          color: "blue",
+          active: true,
+        });
+
+        nextCycleTimeout = setTimeout(() => {
+          runLightSequence();
+        }, rand(2200, 3200));
+      }, rand(950, 1850));
+    };
+
+    yellowTimeout = setTimeout(() => {
+      runLightSequence();
+    }, rand(1200, 2200));
+
+    return () => {
+      cancelled = true;
+      if (yellowTimeout) clearTimeout(yellowTimeout);
+      if (blueTimeout) clearTimeout(blueTimeout);
+      if (nextCycleTimeout) clearTimeout(nextCycleTimeout);
+    };
   }, [screen, running]);
 
   useEffect(() => {
@@ -624,8 +663,8 @@ export default function MultitaskingTestCompetitorStyle() {
       if (screen !== "live") return;
       const key = event.key.toLowerCase();
 
-      if (["q", "w"].includes(key)) {
-        const index = { q: 0, w: 1 }[key];
+      if (["q", "w", "e"].includes(key)) {
+        const index = { q: 0, w: 1, e: 2 }[key];
 
         setFeedback({ text: "Tank is refilled", tone: "green" });
         setRefillingTankIndex(index);
@@ -637,8 +676,8 @@ export default function MultitaskingTestCompetitorStyle() {
         nextTankStartRef.current = Date.now() + rand(900, 2400);
       }
 
-      if (["a", "s", "d"].includes(key)) {
-        const col = { a: 0, s: 1, d: 2 }[key];
+      if (["a", "s", "d", "f"].includes(key)) {
+        const col = { a: 0, s: 1, d: 2, f: 3 }[key];
         const correct = lightsEvent.active && lightsEvent.color === "blue" && lightsEvent.col === col;
         const wrongYellow = lightsEvent.active && lightsEvent.color === "yellow" && lightsEvent.col === col;
 
@@ -825,9 +864,9 @@ export default function MultitaskingTestCompetitorStyle() {
 
               <div className="rounded-[28px] bg-[linear-gradient(180deg,#b0b7c6,#9ca5b5)] px-6 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
                 <div className="flex h-full flex-col items-center justify-center gap-9">
-                  <div className="grid grid-cols-3 gap-x-[22px] gap-y-[18px]">
-                    {Array.from({ length: 6 }).map((_, index) => {
-                      const col = index % 3;
+                  <div className="grid grid-cols-4 gap-x-[18px] gap-y-[18px]">
+                    {Array.from({ length: 8 }).map((_, index) => {
+                      const col = index % 4;
                       const row = Math.floor(index / 3);
                       const active = lightsEvent.active && lightsEvent.col === col && lightsEvent.row === row;
                       const color = active
@@ -850,8 +889,8 @@ export default function MultitaskingTestCompetitorStyle() {
                     })}
                   </div>
 
-                  <div className="grid grid-cols-3 gap-x-[28px] text-[30px] font-black leading-none text-black">
-                    {['A', 'S', 'D'].map((key) => (
+                  <div className="grid grid-cols-4 gap-x-[18px] text-[30px] font-black leading-none text-black">
+                    {['A', 'S', 'D', 'F'].map((key) => (
                       <div key={key} className="flex flex-col items-center gap-2">
                         <span>{key}</span>
                         <div
@@ -865,11 +904,12 @@ export default function MultitaskingTestCompetitorStyle() {
                 </div>
               </div>
 
-              <div className="rounded-[28px] bg-[linear-gradient(180deg,#b0b7c6,#9ca5b5)] px-6 py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
-                <div className="flex h-full items-center justify-center gap-[24px]">
+              <div className="rounded-[28px] bg-[linear-gradient(180deg,#b0b7c6,#9ca5b5)] px-5 py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
+                <div className="flex h-full items-center justify-center gap-[18px]">
                   {[
                     { key: "Q", color: "#e4e800" },
                     { key: "W", color: "#ff8b00" },
+                    { key: "E", color: "#00d800" },
                   ].map((item, index) => {
                     const isCritical = tanks[index] <= 10 && refillingTankIndex !== index;
                     const blinkVisible = !isCritical || tankBlinkOn;
