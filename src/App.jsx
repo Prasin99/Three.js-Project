@@ -1,305 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import * as THREE from "three";
 import { ArrowLeft, BellRing, Expand, Pencil, Radio, Target } from "lucide-react";
 
-const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-const rand = (min, max) => Math.random() * (max - min) + min;
+import { clamp, rand } from "./app/utils/math";
+import Screw from "./app/common/Screw";
+import MetricBar from "./app/common/MetricBar";
+import TimeMetric from "./app/common/TimeMetric";
+import IntroCard from "./app/common/IntroCard";
 
-function Screw({ className = "" }) {
-  return (
-    <div
-      className={`absolute h-[30px] w-[30px] rounded-full border border-[#4f535c] bg-[linear-gradient(135deg,#a9a9a9,#7d7d7d)] shadow-[inset_0_1px_2px_rgba(255,255,255,0.35)] ${className}`}
-    >
-      <div className="absolute left-1/2 top-1/2 h-[2px] w-[22px] -translate-x-1/2 -translate-y-1/2 rotate-[-45deg] bg-[#696969]" />
-    </div>
-  );
-}
-
-function FrameScrews({ stops }) {
-  return (
-    <>
-      {stops.map((left, index) => (
-        <React.Fragment key={`${left}-${index}`}>
-          <Screw className="top-[-17px]" style={{ left }} />
-          <Screw className="bottom-[-17px]" style={{ left }} />
-        </React.Fragment>
-      ))}
-    </>
-  );
-}
-
-function MetricBar({ label, value }) {
-  const safe = clamp(value, 0, 100);
-  return (
-    <div className="space-y-2">
-      <div className="text-center text-[18px] font-bold leading-none text-white">{label}</div>
-      <div className="h-[42px] bg-[#47433f] p-[3px] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-        <div className="relative h-full w-full overflow-hidden bg-[#47433f]">
-          <div
-            className="absolute inset-0 origin-left bg-[#1d86ff] transition-transform duration-100 ease-linear"
-            style={{ transform: `scaleX(${safe / 100})` }}
-          />
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[16px] font-bold text-white">
-            {Math.round(safe)} %
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TimeMetric({ timeLabel }) {
-  return (
-    <div className="space-y-2">
-      <div className="text-center text-[18px] font-bold leading-none text-white">Time</div>
-      <div className="h-[42px] bg-[#47433f] p-[3px] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-        <div className="flex h-full items-center justify-center bg-[#ff3e3e] text-[16px] font-bold text-white">
-          {timeLabel}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function IntroCard({ icon, title, text }) {
-  return (
-    <div className="rounded-[14px] border border-[#d8e0ea] bg-white px-8 py-8 shadow-[0_1px_0_rgba(0,0,0,0.03)]">
-      <div className="mb-4 flex items-center gap-3 text-[#163f73]">
-        <div>{icon}</div>
-        <div className="text-[18px] font-semibold">{title}</div>
-      </div>
-      <div className="max-w-[430px] text-[17px] leading-8 text-[#3c5e87]">{text}</div>
-    </div>
-  );
-}
-
-function HorizonPanel({ running, onScore }) {
-  const mountRef = useRef(null);
-  const mouseRef = useRef({ x: 0, y: 0 });
-  const perfRef = useRef({ score: 72 });
-  const runningRef = useRef(running);
-  const simTimeRef = useRef(0);
-
-  useEffect(() => {
-    runningRef.current = running;
-  }, [running]);
-
-  useEffect(() => {
-    const mount = mountRef.current;
-    if (!mount) return;
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(mount.clientWidth, mount.clientHeight);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    mount.appendChild(renderer.domElement);
-
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 100);
-    camera.position.z = 10;
-
-    const attitudeGroup = new THREE.Group();
-    scene.add(attitudeGroup);
-
-    const sky = new THREE.Mesh(
-      new THREE.PlaneGeometry(36, 36),
-      new THREE.MeshBasicMaterial({ color: 0x13a4d7 })
-    );
-    sky.position.set(0, 9, 0);
-    attitudeGroup.add(sky);
-
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(36, 36),
-      new THREE.MeshBasicMaterial({ color: 0xc17000 })
-    );
-    ground.position.set(0, -9, 0);
-    attitudeGroup.add(ground);
-
-    const horizonLine = new THREE.Mesh(
-      new THREE.PlaneGeometry(40, 0.22),
-      new THREE.MeshBasicMaterial({ color: 0xfaf7ef })
-    );
-    horizonLine.position.set(0, 0.6, 0.5);
-    horizonLine.rotation.z = THREE.MathUtils.degToRad(7);
-    attitudeGroup.add(horizonLine);
-
-    const bankTickMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.98 });
-    const createBankTick = (angleDeg, length, width = 0.1) => {
-      const radius = 2.95;
-      const angle = THREE.MathUtils.degToRad(angleDeg);
-      const tick = new THREE.Mesh(new THREE.PlaneGeometry(width, length), bankTickMat);
-      tick.position.set(Math.cos(angle) * radius, 3.65 + Math.sin(angle) * radius, 0.92);
-      tick.rotation.z = -angle;
-      scene.add(tick);
-    };
-
-    [-145, -132, -119, -106, -93, -80, -67, -54, -41].forEach((deg, index) => {
-      createBankTick(deg, index % 2 === 0 ? 0.34 : 0.58, index % 2 === 0 ? 0.08 : 0.1);
-    });
-
-    const triangleShape = new THREE.Shape();
-    triangleShape.moveTo(0, 0.52);
-    triangleShape.lineTo(-0.56, -0.28);
-    triangleShape.lineTo(0.56, -0.28);
-    triangleShape.lineTo(0, 0.52);
-    const bankCue = new THREE.Mesh(
-      new THREE.ShapeGeometry(triangleShape),
-      new THREE.MeshBasicMaterial({ color: 0xffffff })
-    );
-    bankCue.position.set(0.48, 3.18, 0.95);
-    bankCue.scale.set(0.72, 0.72, 1);
-    scene.add(bankCue);
-
-    const aircraftMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const leftWing = new THREE.Mesh(new THREE.PlaneGeometry(1.95, 0.12), aircraftMat);
-    leftWing.position.set(-2.1, -0.85, 1.02);
-    leftWing.rotation.z = THREE.MathUtils.degToRad(15);
-    scene.add(leftWing);
-
-    const rightWing = new THREE.Mesh(new THREE.PlaneGeometry(1.95, 0.12), aircraftMat);
-    rightWing.position.set(2.1, -0.85, 1.02);
-    rightWing.rotation.z = THREE.MathUtils.degToRad(-15);
-    scene.add(rightWing);
-
-    const crossMat = new THREE.MeshBasicMaterial({ color: 0x1dff1d });
-    const verticalGuide = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 36), crossMat);
-    scene.add(verticalGuide);
-    const horizontalGuide = new THREE.Mesh(new THREE.PlaneGeometry(36, 0.14), crossMat);
-    scene.add(horizontalGuide);
-
-    const ringShape = new THREE.Shape();
-    ringShape.absarc(0, 0, 1.18, 0, Math.PI * 2, false);
-    const hole = new THREE.Path();
-    hole.absarc(0, 0, 1.02, 0, Math.PI * 2, true);
-    ringShape.holes.push(hole);
-    const ringGeometry = new THREE.ShapeGeometry(ringShape, 72);
-    const ringMaterial = new THREE.MeshBasicMaterial({ color: 0x31ff31, transparent: true, opacity: 0.98 });
-    const cursorRing = new THREE.Mesh(ringGeometry, ringMaterial);
-    cursorRing.position.set(0, 0, 1.3);
-    scene.add(cursorRing);
-
-    const target = { x: 0, y: 2.45, vx: 1.15, vy: -0.85, ax: 0, ay: 0, timer: 0.48 };
-    const motion = { roll: 0, pitch: 0, driftX: 0, timer: 0.48 };
-
-    const resize = () => {
-      renderer.setSize(mount.clientWidth, mount.clientHeight);
-    };
-
-    const toScene = (clientX, clientY) => {
-      const rect = mount.getBoundingClientRect();
-      const nx = ((clientX - rect.left) / rect.width) * 2 - 1;
-      const ny = -(((clientY - rect.top) / rect.height) * 2 - 1);
-      return { x: nx * camera.right, y: ny * camera.top };
-    };
-
-    const onPointerMove = (event) => {
-      const p = toScene(event.clientX, event.clientY);
-      mouseRef.current = {
-        x: clamp(p.x, -9.2, 9.2),
-        y: clamp(p.y, -9.2, 9.2),
-      };
-    };
-
-    mount.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("resize", resize);
-
-    const clock = new THREE.Clock();
-    let frame = 0;
-
-    const animate = () => {
-      const rawDt = clock.getDelta();
-      const dt = runningRef.current ? rawDt : 0;
-      if (runningRef.current) {
-        simTimeRef.current += dt;
-        const t = simTimeRef.current;
-
-        motion.timer -= dt;
-        if (motion.timer <= 0) {
-          motion.roll = rand(-1.35, 1.35);
-          motion.pitch = rand(-0.42, 0.42);
-          motion.driftX = rand(-0.18, 0.18);
-          motion.timer = rand(0.5, 0.95);
-        }
-
-        const rollDeg = Math.sin(t * 0.34) * 2.1 + Math.sin(t * 0.88) * 0.45 + motion.roll;
-        const pitch = Math.sin(t * 0.28) * 0.44 + Math.sin(t * 0.95) * 0.1 + motion.pitch;
-        const driftX = Math.sin(t * 0.22) * 0.13 + Math.sin(t * 0.72) * 0.05 + motion.driftX;
-
-        attitudeGroup.rotation.z = THREE.MathUtils.lerp(
-          attitudeGroup.rotation.z,
-          THREE.MathUtils.degToRad(rollDeg),
-          0.08
-        );
-        attitudeGroup.position.y = THREE.MathUtils.lerp(attitudeGroup.position.y, pitch, 0.07);
-        attitudeGroup.position.x = THREE.MathUtils.lerp(attitudeGroup.position.x, driftX, 0.055);
-
-        target.timer -= dt;
-        if (target.timer <= 0) {
-          target.ax = rand(-1.45, 1.45);
-          target.ay = rand(-1.45, 1.45);
-          target.timer = rand(0.5, 0.95);
-        }
-
-        target.vx = clamp(target.vx + target.ax * dt, -2.0, 2.0);
-        target.vy = clamp(target.vy + target.ay * dt, -2.0, 2.0);
-        target.x += target.vx * dt;
-        target.y += target.vy * dt;
-
-        if (target.x < -9 || target.x > 9) {
-          target.vx *= -1;
-          target.x = clamp(target.x, -9, 9);
-        }
-        if (target.y < -9 || target.y > 9) {
-          target.vy *= -1;
-          target.y = clamp(target.y, -9, 9);
-        }
-
-        verticalGuide.position.x = target.x;
-        horizontalGuide.position.y = target.y;
-        cursorRing.position.set(mouseRef.current.x, mouseRef.current.y, 1.3);
-
-        const dx = mouseRef.current.x - target.x;
-        const dy = mouseRef.current.y - target.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-
-        if (dist < 1.1) {
-          cursorRing.material.color.set(0x31ff31);
-          perfRef.current.score = clamp(perfRef.current.score + dt * 10, 0, 100);
-        } else if (dist < 2.25) {
-          cursorRing.material.color.set(0xffdf26);
-          perfRef.current.score = clamp(perfRef.current.score - dt * 6, 0, 100);
-        } else {
-          cursorRing.material.color.set(0xff4d3f);
-          perfRef.current.score = clamp(perfRef.current.score - dt * 14, 0, 100);
-        }
-
-        onScore(perfRef.current.score);
-      }
-
-      renderer.render(scene, camera);
-      frame = requestAnimationFrame(animate);
-    };
-
-    animate();
-
-    return () => {
-      cancelAnimationFrame(frame);
-      mount.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("resize", resize);
-      scene.traverse((obj) => {
-        if (obj.geometry) obj.geometry.dispose();
-        if (obj.material) {
-          if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
-          else obj.material.dispose();
-        }
-      });
-      renderer.dispose();
-      if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
-    };
-  }, [onScore]);
-
-  return <div ref={mountRef} className="h-full w-full overflow-hidden rounded-[28px]" />;
-}
+import HorizonTile from "./app/tiles/HorizonTile";
+import AlertLightsTile from "./app/tiles/AlertLightsTile";
+import TanksTile from "./app/tiles/TanksTile";
+import CallsignTile from "./app/tiles/CallsignTile";
 
 export default function MultitaskingTestCompetitorStyle() {
   const [screen, setScreen] = useState("live");
@@ -314,10 +25,14 @@ export default function MultitaskingTestCompetitorStyle() {
   const [pulse, setPulse] = useState(null);
 
   const [tanks, setTanks] = useState([78, 100, 100]);
-  const [activeTankIndex, setActiveTankIndex] = useState(0);
-  const [refillingTankIndex, setRefillingTankIndex] = useState(null);
+  //const [activeTankIndex, setActiveTankIndex] = useState(0);
+  //const [refillingTankIndex, setRefillingTankIndex] = useState(null);
+  const [activeTankIndexes, setActiveTankIndexes] = useState([0]);
+  const [refillingTankIndexes, setRefillingTankIndexes] = useState([]);
   const [tankBlinkOn, setTankBlinkOn] = useState(true);
+  //const nextTankStartRef = useRef(Date.now() + 1800);
   const nextTankStartRef = useRef(Date.now() + 1800);
+  const secondTankThresholdRef = useRef(rand(45, 55));
 
   const [callsign] = useState("GS743");
   const [prompt, setPrompt] = useState("Stand by");
@@ -414,57 +129,129 @@ export default function MultitaskingTestCompetitorStyle() {
 
   useEffect(() => {
     if (screen !== "live" || !running) return;
+    // REMOVE entire tankLoop setInterval body and its dependency array:
+  //   const tankLoop = setInterval(() => {
+  //     setTanks((prev) => {
+  //       const next = [...prev];
 
-    const tankLoop = setInterval(() => {
-      setTanks((prev) => {
-        const next = [...prev];
+  //       if (refillingTankIndex !== null) {
+  //         const refillSpeed = refillingTankIndex === 0 ? 7.5 : refillingTankIndex === 1 ? 7.0 : 7.25;
+  //         next[refillingTankIndex] = clamp(next[refillingTankIndex] + refillSpeed, 0, 100);
 
-        if (refillingTankIndex !== null) {
-          const refillSpeed = refillingTankIndex === 0 ? 7.5 : refillingTankIndex === 1 ? 7.0 : 7.25;
-          next[refillingTankIndex] = clamp(next[refillingTankIndex] + refillSpeed, 0, 100);
+  //         if (next[refillingTankIndex] >= 100) {
+  //           next[refillingTankIndex] = 100;
+  //           setRefillingTankIndex(null);
+  //           setActiveTankIndex(null);
+  //           nextTankStartRef.current = Date.now() + rand(900, 2400);
+  //         }
 
-          if (next[refillingTankIndex] >= 100) {
-            next[refillingTankIndex] = 100;
-            setRefillingTankIndex(null);
-            setActiveTankIndex(null);
-            nextTankStartRef.current = Date.now() + rand(900, 2400);
-          }
+  //         return next;
+  //       }
 
-          return next;
-        }
+  //       if (activeTankIndex === null) {
+  //         if (Date.now() >= nextTankStartRef.current) {
+  //           setActiveTankIndex(Math.floor(Math.random() * 3));
+  //         }
+  //         return next;
+  //       }
 
-        if (activeTankIndex === null) {
-          if (Date.now() >= nextTankStartRef.current) {
-            setActiveTankIndex(Math.floor(Math.random() * 3));
-          }
-          return next;
-        }
+  //       const drainSpeed = activeTankIndex === 0 ? 0.72 : activeTankIndex === 1 ? 0.62 : 0.67;
+  //       next[activeTankIndex] = clamp(next[activeTankIndex] - drainSpeed - rand(0.01, 0.08), 0, 100);
+  //       return next;
+  //     });
+  //   }, 120);
 
-        const drainSpeed = activeTankIndex === 0 ? 0.72 : activeTankIndex === 1 ? 0.62 : 0.67;
-        next[activeTankIndex] = clamp(next[activeTankIndex] - drainSpeed - rand(0.01, 0.08), 0, 100);
-        return next;
+  //   return () => clearInterval(tankLoop);
+  // }, [screen, running, activeTankIndex, refillingTankIndex]);
+  
+  const tankLoop = setInterval(() => {
+  setTanks((prev) => {
+    const next = [...prev];
+
+    if (refillingTankIndexes.length > 0) {
+      refillingTankIndexes.forEach((tankIndex) => {
+        const refillSpeed = tankIndex === 0 ? 7.5 : tankIndex === 1 ? 7.0 : 7.25;
+        next[tankIndex] = clamp(next[tankIndex] + refillSpeed, 0, 100);
       });
-    }, 120);
 
-    return () => clearInterval(tankLoop);
-  }, [screen, running, activeTankIndex, refillingTankIndex]);
+      const completedIndexes = refillingTankIndexes.filter((tankIndex) => next[tankIndex] >= 100);
+      if (completedIndexes.length > 0) {
+        completedIndexes.forEach((tankIndex) => { next[tankIndex] = 100; });
+        setRefillingTankIndexes((prev) => prev.filter((i) => !completedIndexes.includes(i)));
+        setActiveTankIndexes((prev) => {
+          const remaining = prev.filter((i) => !completedIndexes.includes(i));
+          if (remaining.length === 0) {
+            nextTankStartRef.current = Date.now() + rand(900, 2400);
+            secondTankThresholdRef.current = rand(45, 55);
+          }
+          return remaining;
+        });
+      }
+    }
+
+    if (activeTankIndexes.length === 0 && refillingTankIndexes.length === 0) {
+      if (Date.now() >= nextTankStartRef.current) {
+        setActiveTankIndexes([Math.floor(Math.random() * 3)]);
+        secondTankThresholdRef.current = rand(45, 55);
+      }
+      return next;
+    }
+
+    const drainingIndexes = activeTankIndexes.filter((i) => !refillingTankIndexes.includes(i));
+    drainingIndexes.forEach((tankIndex) => {
+      const drainSpeed = tankIndex === 0 ? 0.72 : tankIndex === 1 ? 0.62 : 0.67;
+      next[tankIndex] = clamp(next[tankIndex] - drainSpeed - rand(0.01, 0.08), 0, 100);
+    });
+
+    const belowThreshold = drainingIndexes.some((i) => next[i] < secondTankThresholdRef.current);
+    const availableIndexes = [0, 1, 2].filter(
+      (i) => !activeTankIndexes.includes(i) && !refillingTankIndexes.includes(i)
+    );
+    if (belowThreshold && activeTankIndexes.length < 2 && availableIndexes.length > 0 && Math.random() < 0.03) {
+      const extraTank = availableIndexes[Math.floor(Math.random() * availableIndexes.length)];
+      setActiveTankIndexes((prev) => [...prev, extraTank]);
+    }
+
+    return next;
+  });
+}, 120);
+
+return () => clearInterval(tankLoop);
+}, [screen, running, activeTankIndexes, refillingTankIndexes]);
 
   useEffect(() => {
     if (screen !== "live" || !running) return;
-    const tankPenalty = setInterval(() => {
-      setTanks((prev) => {
-        if (refillingTankIndex !== null) return prev;
-        if (prev[activeTankIndex] > 2) return prev;
-        setLightsScore((s) => clamp(s - 4, 0, 100));
-        setFeedback({ text: "Performance of tanks is dropping.", tone: "yellow" });
-        return prev;
-      });
-    }, 900);
-    return () => clearInterval(tankPenalty);
-  }, [screen, running, activeTankIndex, refillingTankIndex]);
+  //   const tankPenalty = setInterval(() => {
+  //     setTanks((prev) => {
+  //       if (refillingTankIndex !== null) return prev;
+  //       if (prev[activeTankIndex] > 2) return prev;
+  //       setLightsScore((s) => clamp(s - 4, 0, 100));
+  //       setFeedback({ text: "Performance of tanks is dropping.", tone: "yellow" });
+  //       return prev;
+  //     });
+  //   }, 900);
+  //   return () => clearInterval(tankPenalty);
+  // }, [screen, running, activeTankIndex, refillingTankIndex]);
+
+  const tankPenalty = setInterval(() => {
+  setTanks((prev) => {
+    const anyCritical = activeTankIndexes.some(
+      (i) => prev[i] <= 2 && !refillingTankIndexes.includes(i)
+    );
+    if (!anyCritical) return prev;
+    setLightsScore((s) => clamp(s - 4, 0, 100));
+    setFeedback({ text: "Performance of tanks is dropping.", tone: "yellow" });
+    return prev;
+  });
+}, 900);
+return () => clearInterval(tankPenalty);
+}, [screen, running, activeTankIndexes, refillingTankIndexes]);
 
   useEffect(() => {
-    const hasCriticalTank = tanks.some((level, index) => level <= 10 && refillingTankIndex !== index);
+    //const hasCriticalTank = tanks.some((level, index) => level <= 10 && refillingTankIndex !== index);
+    const hasCriticalTank = tanks.some(
+  (level, index) => level <= 10 && activeTankIndexes.includes(index) && !refillingTankIndexes.includes(index)
+  );
     if (!hasCriticalTank || !running) {
       setTankBlinkOn(true);
       return;
@@ -475,7 +262,8 @@ export default function MultitaskingTestCompetitorStyle() {
     }, 260);
 
     return () => clearInterval(blinkTimer);
-  }, [tanks, refillingTankIndex, running]);
+    // }, [tanks, refillingTankIndex, running]);
+  }, [tanks, activeTankIndexes, refillingTankIndexes, running]);
 
   useEffect(() => {
     if (screen !== "live" || !running) return;
@@ -513,8 +301,8 @@ export default function MultitaskingTestCompetitorStyle() {
 
         nextCycleTimeout = setTimeout(() => {
           runLightSequence();
-        }, rand(2200, 3200));
-      }, rand(950, 1850));
+        }, rand(4000, 5000));
+      }, rand(4000, 6000));
     };
 
     yellowTimeout = setTimeout(() => {
@@ -540,7 +328,7 @@ export default function MultitaskingTestCompetitorStyle() {
         }
         return { ...prev, active: false };
       });
-    }, 1100);
+    }, 7000);
     return () => clearTimeout(missTimer);
   }, [screen, running, lightsEvent]);
 
@@ -667,9 +455,11 @@ export default function MultitaskingTestCompetitorStyle() {
         const index = { q: 0, w: 1, e: 2 }[key];
 
         setFeedback({ text: "Tank is refilled", tone: "green" });
-        setRefillingTankIndex(index);
-
-        if (index === activeTankIndex) {
+        // setRefillingTankIndex(index);
+        // if (index === activeTankIndex) {
+        // Add
+        setRefillingTankIndexes((prev) => prev.includes(index) ? prev : [...prev, index]);
+if (activeTankIndexes.includes(index)) {
           setLightsScore((s) => clamp(s + 1, 0, 100));
         }
 
@@ -701,7 +491,8 @@ export default function MultitaskingTestCompetitorStyle() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [screen, lightsEvent, activeTankIndex]);
+  //}, [screen, lightsEvent, activeTankIndex]);
+  }, [screen, lightsEvent, activeTankIndexes]);
 
   const combinedLightTankScore = useMemo(() => {
     const tankPart = tanks.reduce((sum, tank) => sum + tank, 0) / tanks.length;
@@ -709,17 +500,25 @@ export default function MultitaskingTestCompetitorStyle() {
   }, [tanks, lightsScore]);
 
   const warningText = useMemo(() => {
-    if (tanks.some((level, index) => level < 34 && refillingTankIndex !== index)) {
+    //if (tanks.some((level, index) => level < 34 && refillingTankIndex !== index)) {
+    if (tanks.some((level, index) => level < 34 && activeTankIndexes.includes(index) && !refillingTankIndexes.includes(index))) {
+
       return "Performance of tanks is dropping.";
     }
-    if (refillingTankIndex !== null) {
+    //if (refillingTankIndex !== null) {
+    if (refillingTankIndexes.length > 0) {
+
       return "Tank is refilling.";
     }
-    if (activeTankIndex !== null && combinedLightTankScore < 70) {
+    //if (activeTankIndex !== null && combinedLightTankScore < 70) {
+    if (activeTankIndexes.length > 0 && combinedLightTankScore < 70) {
+
       return "Performance of tanks is dropping.";
     }
     return "";
-  }, [combinedLightTankScore, tanks, refillingTankIndex, activeTankIndex]);
+  //}, [combinedLightTankScore, tanks, refillingTankIndex, activeTankIndex]);
+  }, [combinedLightTankScore, tanks, refillingTankIndexes, activeTankIndexes]);
+
 
   const submitHeading = () => {
     if (!announcedNumber) return;
@@ -858,7 +657,7 @@ export default function MultitaskingTestCompetitorStyle() {
             <div className="grid h-[370px] grid-cols-[1.02fr_1fr_0.96fr_0.96fr] gap-[12px]">
               <div className="rounded-[28px] bg-[linear-gradient(180deg,#b0b7c6,#9ca5b5)] p-[12px] shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
                 <div className="h-full overflow-hidden rounded-[26px] bg-[#96a0b2]">
-                  <HorizonPanel running={running} onScore={setHorizonScore} />
+                  <HorizonTile running={running} onScore={setHorizonScore} />
                 </div>
               </div>
 
@@ -911,7 +710,9 @@ export default function MultitaskingTestCompetitorStyle() {
                     { key: "W", color: "#ff8b00" },
                     { key: "E", color: "#00d800" },
                   ].map((item, index) => {
-                    const isCritical = tanks[index] <= 10 && refillingTankIndex !== index;
+                    //const isCritical = tanks[index] <= 10 && refillingTankIndex !== index;
+                    const isCritical = tanks[index] <= 10 && activeTankIndexes.includes(index) && !refillingTankIndexes.includes(index);
+
                     const blinkVisible = !isCritical || tankBlinkOn;
                     return (
                       <div key={item.key} className="flex flex-col items-center gap-[8px]">
@@ -1002,7 +803,7 @@ export default function MultitaskingTestCompetitorStyle() {
                   <MetricBar label="Lights and Tanks Performance" value={combinedLightTankScore} />
                   <div className="min-h-[74px] pl-[8px] text-left">
                     <div className="text-[21px] font-bold text-[#ffff00]">Warning</div>
-                    <div className="mt-1 text-[21px] leading-[1.2] text-[#ffff00]">{warningText || " "}</div>
+                    <div className="mt-1 text-[21px] leading-[1.2] text-[#ffff00]">{warningText || " "}</div>
                   </div>
                 </div>
 
