@@ -173,7 +173,20 @@ useEffect(() => {
       setCallsign(nextCS);
       setAnnouncedHeading(nextHeading);
       setHeadingInput("");
-      speakCall(nextCS, nextHeading);
+      //speakCall(nextCS, nextHeading);
+
+      const spoken = speakCall(nextCS, nextHeading);
+
+// Speech was blocked? Keep trying every 200ms
+if (!spoken) {
+  const retry = setInterval(() => {
+    if (speechUnlockedRef.current) {
+      speakCall(nextCS, nextHeading);  // try again
+      clearInterval(retry);            // stop retrying
+    }
+  }, 200);
+  setTimeout(() => clearInterval(retry), 4000); // give up after 4 sec
+}
 
       setTimeout(() => inputRef.current?.focus(), 100);
     }, delay);
