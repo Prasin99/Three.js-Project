@@ -1,290 +1,263 @@
 import React, { useEffect, useRef, useState } from "react";
-import { rand } from "../utils/math";
 
-export default function CallsignTile({
-  screen,
-  running,
-  setCallsignScore,
-  setFeedback,
-}) {
-  const [callsign] = useState("GS743");
-  const [prompt, setPrompt] = useState("Stand by");
-  const [announcedNumber, setAnnouncedNumber] = useState("");
-  const [headingInput, setHeadingInput] = useState("");
-  const [callsignStats, setCallsignStats] = useState({
-    correct: 1,
-    wrong: 1,
-    missed: 0,
-    total: 2,
-  });
+// ── NATO Phonetic Alphabet ────────────────────────────────────────────────────
+const NATO = {
+  A: "Alpha",    B: "Bravo",    C: "Charlie",  D: "Delta",    E: "Echo",
+  F: "Foxtrot",  G: "Golf",     H: "Hotel",    I: "India",    J: "Juliet",
+  K: "Kilo",     L: "Lima",     M: "Mike",     N: "November", O: "Oscar",
+  P: "Papa",     Q: "Quebec",   R: "Romeo",    S: "Sierra",   T: "Tango",
+  U: "Uniform",  V: "Victor",   W: "Whiskey",  X: "X-ray",    Y: "Yankee",
+  Z: "Zulu",
+  "0": "Zero",   "1": "One",    "2": "Two",    "3": "Three",  "4": "Four",
+  "5": "Five",   "6": "Six",    "7": "Seven",  "8": "Eight",  "9": "Niner",
+};
 
-  const inputRef = useRef(null);
-  const lastCallRef = useRef("");
-  const speechUnlockedRef = useRef(false);
-  const pendingSpeechRef = useRef(null);
-  const voicesRef = useRef([]);
+function toPhonetic(str) {
+  return str.toUpperCase().split("").map((ch) => NATO[ch] ?? ch).join(" ")
+}
+
+function generateCallsign(exclude = "") {
+  const L = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let cs;
+  do {
+    const l1 = L[Math.floor(Math.random() * L.length)];
+    const l2 = L[Math.floor(Math.random() * L.length)];
+    const d1 = Math.floor(Math.random() * 10);
+    const d2 = Math.floor(Math.random() * 10);
+    const d3 = Math.floor(Math.random() * 10);
+    cs = `${l1}${l2}${d1}${d2}${d3}`;
+  } while (cs === exclude);
+  return cs;
+}
+
+const HEADING_POOL = [
+  "100","150","200","250","300","350","400","450",
+  "500","550","600","650","700","750","800","850","900",
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+export default function CallsignTile({ screen, running, setCallsignScore, setFeedback }) {
+  const [callsign, setCallsign]               = useState(() => generateCallsign());
+  const [announcedHeading, setAnnouncedHeading] = useState("");
+  const [headingInput, setHeadingInput]         = useState("");
+  const [callsignStats, setCallsignStats]       = useState({ correct: 0, wrong: 0, missed: 0, total: 0 });
+
+  const inputRef            = useRef(null);
+  const lastHeadingRef      = useRef("");
+  const lastCallsignRef     = useRef("");
+  const speechUnlockedRef   = useRef(false);
+  const pendingRef          = useRef(null);
+  const voicesRef           = useRef([]);
   const unlockInProgressRef = useRef(false);
-  const levelPoolRef = useRef([
-    "100",
-    "150",
-    "200",
-    "250",
-    "300",
-    "350",
-    "400",
-    "450",
-    "500",
-    "550",
-    "600",
-    "650",
-    "700",
-    "750",
-    "800",
-    "850",
-    "900",
-  ]);
+  const answeredRef         = useRef(false);
+  const headingInputRef    = useRef("");
+  const announcedRef       = useRef("");
 
-  const speakLevelCall = (value) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      return false;
+  // ── Sync score to parent whenever stats change (correct React pattern) ────
+  useEffect(() => { headingInputRef.current = headingInput; }, [headingInput]);
+  useEffect(() => { announcedRef.current = announcedHeading; }, [announcedHeading]); 
+  useEffect(() => {
+    if (callsignStats.total === 0) {
+      setCallsignScore(50); // default starting display
+      return;
     }
+    setCallsignScore((callsignStats.correct / callsignStats.total) * 100);
+  }, [callsignStats, setCallsignScore]);
 
-    pendingSpeechRef.current = value;
+  // ── Core speak function ───────────────────────────────────────────────────
+  const speakCall = (cs, heading) => {
+    if (!("speechSynthesis" in window)) return false;
 
-    if (!speechUnlockedRef.current) {
-      setPrompt("Click once to enable audio");
-      return false;
-    }
+    pendingRef.current = { cs, heading };
+
+    if (!speechUnlockedRef.current) return false;
 
     const synth = window.speechSynthesis;
-    const speakCallsign = callsign.split("").join(" ");
-    const speakDigits = value.split("").join(" ");
-
     synth.cancel();
     synth.resume();
 
-    const utterance = new SpeechSynthesisUtterance(
-      `${speakCallsign}, new level, ${speakDigits}`
-    );
+    const text = `${toPhonetic(cs)}, new heading, ${toPhonetic(heading)}`;
+    const utt  = new SpeechSynthesisUtterance(text);
 
-    const voices = voicesRef.current.length
-      ? voicesRef.current
-      : synth.getVoices();
-
-    const preferredVoice =
-      voices.find(
-        (voice) =>
-          /en/i.test(voice.lang) &&
-          /(Google|Samantha|Daniel|Karen|Moira|Alex)/i.test(voice.name)
-      ) ||
-      voices.find((voice) => /en/i.test(voice.lang)) ||
+    const voices = voicesRef.current.length ? voicesRef.current : synth.getVoices();
+    const preferred =
+      voices.find((v) => /en/i.test(v.lang) && /(Google|Samantha|Daniel|Karen|Moira|Alex)/i.test(v.name)) ||
+      voices.find((v) => /en/i.test(v.lang)) ||
       null;
 
-    if (preferredVoice) {
-      utterance.voice = preferredVoice;
-      utterance.lang = preferredVoice.lang;
-    } else {
-      utterance.lang = "en-US";
-    }
+    if (preferred) { utt.voice = preferred; utt.lang = preferred.lang; }
+    else            { utt.lang = "en-US"; }
 
-    utterance.rate = 0.82;
-    utterance.pitch = 1;
-    utterance.volume = 1;
+    utt.rate   = 0.70;  // slightly slower than normal
+    utt.pitch  = 1;
+    utt.volume = 1;
 
-    utterance.onstart = () => {
-      setPrompt("Listen and enter the level");
-    };
-
-    utterance.onend = () => {
-      if (pendingSpeechRef.current === value) {
-        pendingSpeechRef.current = null;
+    utt.onend = () => {
+      if (pendingRef.current?.cs === cs && pendingRef.current?.heading === heading) {
+        pendingRef.current = null;
       }
     };
 
-    setTimeout(() => {
-      synth.speak(utterance);
-    }, 60);
-
+    setTimeout(() => synth.speak(utt), 60);
     return true;
   };
 
+  // ── Load voices + one-time speech unlock on first user gesture ───────────
   useEffect(() => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-
+    if (!("speechSynthesis" in window)) return;
     const synth = window.speechSynthesis;
 
     const loadVoices = () => {
-      const availableVoices = synth.getVoices();
-      if (availableVoices.length) {
-        voicesRef.current = availableVoices;
-      }
+      const v = synth.getVoices();
+      if (v.length) voicesRef.current = v;
     };
-
     loadVoices();
     synth.onvoiceschanged = loadVoices;
 
-    const unlockSpeech = () => {
+    const unlock = () => {
       if (speechUnlockedRef.current || unlockInProgressRef.current) return;
       unlockInProgressRef.current = true;
-      speechUnlockedRef.current = true;
+      speechUnlockedRef.current   = true;
       synth.resume();
 
-      const warmup = new SpeechSynthesisUtterance("audio enabled");
-      warmup.volume = 0.01;
-      warmup.rate = 1;
-      warmup.pitch = 1;
-
-      warmup.onend = () => {
+      const warmup  = new SpeechSynthesisUtterance(".");
+      warmup.volume = 0.001;
+      warmup.onend  = () => {
         unlockInProgressRef.current = false;
-        if (pendingSpeechRef.current) {
-          const queuedValue = pendingSpeechRef.current;
-          setTimeout(() => {
-            speakLevelCall(queuedValue);
-          }, 120);
+        if (pendingRef.current) {
+          const { cs, heading } = pendingRef.current;
+          setTimeout(() => speakCall(cs, heading), 150);
         }
       };
-
       synth.cancel();
       synth.speak(warmup);
     };
 
-    window.addEventListener("pointerdown", unlockSpeech);
-    window.addEventListener("mousedown", unlockSpeech);
-    window.addEventListener("touchstart", unlockSpeech);
-    window.addEventListener("keydown", unlockSpeech);
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown",     unlock, { once: true });
 
     return () => {
-      window.removeEventListener("pointerdown", unlockSpeech);
-      window.removeEventListener("mousedown", unlockSpeech);
-      window.removeEventListener("touchstart", unlockSpeech);
-      window.removeEventListener("keydown", unlockSpeech);
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown",     unlock);
       synth.onvoiceschanged = null;
     };
-  }, [callsign]);
+  }, []);
 
+  // ── Pause: cancel speech when not running ─────────────────────────────────
+useEffect(() => {
+  if (!("speechSynthesis" in window)) return;
+  const synth = window.speechSynthesis;
+
+  if (!running) {
+    synth.pause();       // freeze mid-utterance
+  } else {
+    synth.resume();      // continue from where it stopped
+  }
+}, [running]);
+
+  // ── Schedule next call ────────────────────────────────────────────────────
   useEffect(() => {
-    if (typeof window !== "undefined" && window.speechSynthesis && !running) {
-      window.speechSynthesis.cancel();
-    }
-  }, [running]);
+    if (screen !== "live" || !running || announcedHeading) return;
 
-  useEffect(() => {
-    if (screen !== "live" || !running || announcedNumber) return;
+    const delay = lastHeadingRef.current ? Math.random() * 4000 + 7000 : 2600;
 
-    const delay = lastCallRef.current ? rand(7000, 11000) : 2600;
+    const timer = setTimeout(() => {
+      const options     = HEADING_POOL.filter((v) => v !== lastHeadingRef.current);
+      const nextHeading = options[Math.floor(Math.random() * options.length)];
+      const nextCS      = generateCallsign(lastCallsignRef.current);
 
-    const nextCallTimer = setTimeout(() => {
-      const options = levelPoolRef.current.filter(
-        (value) => value !== lastCallRef.current
-      );
-      const next = options[Math.floor(Math.random() * options.length)];
+      lastHeadingRef.current  = nextHeading;
+      lastCallsignRef.current = nextCS;
+      answeredRef.current     = false; // reset for new call
 
-      lastCallRef.current = next;
-      setAnnouncedNumber(next);
+      setCallsign(nextCS);
+      setAnnouncedHeading(nextHeading);
       setHeadingInput("");
-      setPrompt("Listen and enter the level");
-      speakLevelCall(next);
+      speakCall(nextCS, nextHeading);
 
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 100);
+      setTimeout(() => inputRef.current?.focus(), 100);
     }, delay);
 
-    return () => {
-      clearTimeout(nextCallTimer);
-    };
-  }, [screen, running, announcedNumber, callsign]);
+    return () => clearTimeout(timer);
+  }, [screen, running, announcedHeading]);
 
+  // ── Response timeout (missed) ─────────────────────────────────────────────
   useEffect(() => {
-    if (screen !== "live" || !running || !announcedNumber) return;
+    if (screen !== "live" || !running || !announcedHeading) return;
 
-    const responseTimer = setTimeout(() => {
-      setCallsignStats((prev) => {
-        const next = {
-          correct: prev.correct,
-          wrong: prev.wrong,
-          missed: prev.missed + 1,
-          total: prev.total + 1,
-        };
-        setCallsignScore((next.correct / next.total) * 100);
-        return next;
-      });
-
-      setFeedback({ text: "Level call: Response missed", tone: "yellow" });
-      setPrompt("Stand by");
+    const timer = setTimeout(() => {
+      if (answeredRef.current) return; // user already answered — skip miss
+      answeredRef.current = true;   
+      setCallsignStats((prev) => ({
+        ...prev,
+        missed: prev.missed + 1,
+        total:  prev.total  + 1,
+      }));
+      setFeedback({ text: "Heading call: Response missed", tone: "yellow" });
       setHeadingInput("");
-      setAnnouncedNumber("");
-    }, 5600);
+      setAnnouncedHeading("");
+    }, 10000);
 
-    return () => clearTimeout(responseTimer);
-  }, [screen, running, announcedNumber, setCallsignScore, setFeedback]);
+    return () => clearTimeout(timer);
+  }, [screen, running, announcedHeading]);
 
-  const submitHeading = () => {
-    if (!announcedNumber) return;
+  // ── Submit answer ─────────────────────────────────────────────────────────
+  const submit = () => {
+  const currentHeading = announcedRef.current;
+  if (!currentHeading) return;
+  answeredRef.current = true;
 
-    const typed = headingInput.trim();
-    const isCorrect = typed === announcedNumber;
+  const typed     = headingInputRef.current.trim();
+  const isCorrect = typed === currentHeading;
 
-    setCallsignStats((prev) => {
-      const next = {
-        correct: prev.correct + (isCorrect ? 1 : 0),
-        wrong: prev.wrong + (isCorrect ? 0 : 1),
-        missed: prev.missed,
-        total: prev.total + 1,
-      };
-      setCallsignScore((next.correct / next.total) * 100);
-      return next;
-    });
+  console.log("SUBMIT:", { typed, expected: currentHeading, isCorrect }); // debug
+
+  setCallsignStats((prev) => ({
+    correct: prev.correct + (isCorrect ? 1 : 0),
+    wrong:   prev.wrong   + (isCorrect ? 0 : 1),
+    missed:  prev.missed,
+    total:   prev.total   + 1,
+  }));
 
     setFeedback({
       text: isCorrect
-        ? `Level call: Correct response ${typed}`
-        : `Level call: Wrong response ${typed || "---"}`,
+        ? `Heading call: Correct response ${typed}`
+        : `Heading call: Wrong response ${typed || "---"}`,
       tone: isCorrect ? "green" : "red",
     });
 
-    setPrompt(isCorrect ? "Correct, stand by" : "Incorrect, stand by");
     setHeadingInput("");
-    setAnnouncedNumber("");
+    setAnnouncedHeading("");
   };
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="rounded-[28px] bg-[linear-gradient(180deg,#b0b7c6,#a6afbe)] px-6 py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
       <div className="flex h-full flex-col items-center justify-center text-center text-[#4a4a4a]">
+
         <div className="text-[21px] font-medium">Your callsign:</div>
         <div className="mt-1 text-[28px] font-black tracking-[0.01em] text-[#0b8f00]">
           {callsign}
         </div>
 
-        <div className="mt-[38px] text-[14px] font-semibold uppercase tracking-[0.12em] text-[#676767]">
-          {prompt}
-        </div>
-
-        <div className="mt-[10px] text-[21px] font-bold">New level:</div>
+        <div className="mt-[38px] text-[21px] font-bold">New heading:</div>
 
         <input
           ref={inputRef}
           inputMode="numeric"
           autoComplete="off"
           value={headingInput}
-          onChange={(e) =>
-            setHeadingInput(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))
-          }
-          onKeyDown={(e) => {
-            if (e.key === "Enter") submitHeading();
-          }}
-          className={`mt-4 h-[48px] w-[146px] border-[3px] border-[#5b5b5b] text-center text-[26px] font-semibold text-black outline-none ${
-            announcedNumber || headingInput ? "bg-[#fff200]" : "bg-white"
+          onChange={(e) => setHeadingInput(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
+          onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+          className={`mt-3 h-[48px] w-[160px] border-[3px] border-[#5b5b5b] text-center text-[26px] font-semibold text-black outline-none ${
+            announcedHeading || headingInput ? "bg-[#fff200]" : "bg-white"
           }`}
           placeholder=""
         />
 
-        <div className="mt-[10px] text-[13px] font-semibold text-[#5e5e5e]">
-          {speechUnlockedRef.current
-            ? "Type 3 digits and press Enter"
-            : "Click once to enable audio"}
-        </div>
       </div>
     </div>
   );
 }
+
+

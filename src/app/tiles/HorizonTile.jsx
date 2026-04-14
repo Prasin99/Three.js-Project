@@ -151,9 +151,9 @@ attitudeGroup.add(horizonLine);
     scene.add(horizontalGuide);
 
     const ringShape = new THREE.Shape();
-    ringShape.absarc(0, 0, 1.50, 0, Math.PI * 2, false);
+    ringShape.absarc(0, 0, 1.35, 0, Math.PI * 2, false);
     const hole = new THREE.Path();
-    hole.absarc(0, 0, 1.30, 0, Math.PI * 2, true);
+    hole.absarc(0, 0, 1.15, 0, Math.PI * 2, true);
     ringShape.holes.push(hole);
 
     const ringGeometry = new THREE.ShapeGeometry(ringShape, 72);
