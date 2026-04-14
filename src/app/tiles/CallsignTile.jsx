@@ -37,7 +37,8 @@ const HEADING_POOL = [
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function CallsignTile({ screen, running, setCallsignScore, setFeedback }) {
-  const [callsign, setCallsign]               = useState(() => generateCallsign());
+  //const [callsign, setCallsign]               = useState(() => generateCallsign());
+  const [callsign, setCallsign] = useState("");
   const [announcedHeading, setAnnouncedHeading] = useState("");
   const [headingInput, setHeadingInput]         = useState("");
   const [callsignStats, setCallsignStats]       = useState({ correct: 0, wrong: 0, missed: 0, total: 0 });
