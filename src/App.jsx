@@ -713,19 +713,23 @@ export default function MultitaskingTestCompetitorStyle() {
       setTanks((prev) => {
         const next = [...prev];
 
+        // ── Refill only the FIRST tank in the queue ──
         if (refillingTankIndexes.length > 0) {
-          refillingTankIndexes.forEach((tankIndex) => {
-            const refillSpeed = tankIndex === 0 ? 7.5 : tankIndex === 1 ? 7.0 : 7.25;
-            next[tankIndex] = clamp(next[tankIndex] + refillSpeed, 0, 100);
-          });
+          const activeRefillIndex = refillingTankIndexes[0];
+          //const refillSpeed = activeRefillIndex === 0 ? 7.5 : activeRefillIndex === 1 ? 7.0 : 7.25;
+          //const refillSpeed = activeRefillIndex === 0 ? 0.72 : activeRefillIndex === 1 ? 0.62 : 0.67;
+          const refillSpeed = activeRefillIndex === 0 ? 1.72 : activeRefillIndex === 1 ? 1.62 : 1.67;
 
-          const completedIndexes = refillingTankIndexes.filter((tankIndex) => next[tankIndex] >= 100);
-          if (completedIndexes.length > 0) {
-            completedIndexes.forEach((tankIndex) => { next[tankIndex] = 100; });
-            setRefillingTankIndexes((prev) => prev.filter((i) => !completedIndexes.includes(i)));
+          next[activeRefillIndex] = clamp(next[activeRefillIndex] + refillSpeed, 0, 100);
+
+          if (next[activeRefillIndex] >= 100) {
+            next[activeRefillIndex] = 100;
+            // Remove completed tank from front of queue
+            setRefillingTankIndexes((prev) => prev.slice(1));
+            // Remove from active draining list
             setActiveTankIndexes((prev) => {
-              const remaining = prev.filter((i) => !completedIndexes.includes(i));
-              if (remaining.length === 0) {
+              const remaining = prev.filter((i) => i !== activeRefillIndex);
+              if (remaining.length === 0 && refillingTankIndexes.length <= 1) {
                 nextTankStartRef.current = Date.now() + rand(900, 2400);
                 secondTankThresholdRef.current = rand(45, 55);
               }
@@ -870,6 +874,7 @@ export default function MultitaskingTestCompetitorStyle() {
       const key = event.key.toLowerCase();
 
       if (["q", "w", "e"].includes(key)) {
+        if (refillingTankIndexes.length > 0) return;   // ← ADDED: ignore if any tank is refilling
         const index = { q: 0, w: 1, e: 2 }[key];
         setFeedback({ text: "Tank is refilled", tone: "green" });
         setRefillingTankIndexes((prev) => prev.includes(index) ? prev : [...prev, index]);

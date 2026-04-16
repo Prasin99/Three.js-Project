@@ -8,12 +8,17 @@ const NATO = {
   P: "Papa",     Q: "Quebec",   R: "Romeo",    S: "Sierra",   T: "Tango",
   U: "Uniform",  V: "Victor",   W: "Whiskey",  X: "X-ray",    Y: "Yankee",
   Z: "Zulu",
-  "0": "Zero",   "1": "One",    "2": "Two",    "3": "Three",  "4": "Four",
-  "5": "Five",   "6": "Six",    "7": "Seven",  "8": "Eight",  "9": "Niner",
+  "0": "zero",   "1": "one",    "2": "two",    "3": "three",  "4": "four",
+  "5": "five",   "6": "six",    "7": "seven",  "8": "eight",  "9": "niner",
 };
 
 function toPhonetic(str) {
-  return str.toUpperCase().split("").map((ch) => NATO[ch] ?? ch).join(" ")
+  return str.toUpperCase().split("").map((ch) => NATO[ch] ?? ch).join(" ");
+}
+
+// Spoken digits for numbers: "275" -> "two seven five"
+function digitsToSpoken(numStr) {
+  return numStr.split("").map((d) => NATO[d] ?? d).join(" ");
 }
 
 function generateCallsign(exclude = "") {
@@ -30,46 +35,61 @@ function generateCallsign(exclude = "") {
   return cs;
 }
 
-const HEADING_POOL = [
-  "100","150","200","250","300","350","400","450",
-  "500","550","600","650","700","750","800","850","900",
-];
+// ── NEW: generate the task (type + value) ─────────────────────────────────────
+function generateTask(lastValue = "") {
+  const isHeading = Math.random() < 0.5;
+  let value;
+  do {
+    if (isHeading) {
+      // Heading: 100–360
+      value = String(Math.floor(Math.random() * (360 - 100 + 1)) + 100);
+    } else {
+      // Flight Level: 50–410
+      value = String(Math.floor(Math.random() * (410 - 50 + 1)) + 50);
+    }
+  } while (value === lastValue);
+
+  return {
+    type: isHeading ? "heading" : "flightLevel",
+    value,
+  };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function CallsignTile({ screen, running, setCallsignScore, setFeedback }) {
-  //const [callsign, setCallsign]               = useState(() => generateCallsign());
-  const [callsign, setCallsign] = useState("");
-  const [announcedHeading, setAnnouncedHeading] = useState("");
-  const [headingInput, setHeadingInput]         = useState("");
-  const [callsignStats, setCallsignStats]       = useState({ correct: 0, wrong: 0, missed: 0, total: 0 });
+  const [callsign, setCallsign]             = useState("");
+  const [currentTask, setCurrentTask]       = useState(null); // { type, value } or null
+  const [headingInput, setHeadingInput]     = useState("");
+  const [callsignStats, setCallsignStats]   = useState({ correct: 0, wrong: 0, missed: 0, total: 0 });
 
   const inputRef            = useRef(null);
-  const lastHeadingRef      = useRef("");
+  const lastValueRef        = useRef("");
   const lastCallsignRef     = useRef("");
   const speechUnlockedRef   = useRef(false);
   const pendingRef          = useRef(null);
   const voicesRef           = useRef([]);
   const unlockInProgressRef = useRef(false);
   const answeredRef         = useRef(false);
-  const headingInputRef    = useRef("");
-  const announcedRef       = useRef("");
+  const headingInputRef     = useRef("");
+  const currentTaskRef      = useRef(null);
 
-  // ── Sync score to parent whenever stats change (correct React pattern) ────
   useEffect(() => { headingInputRef.current = headingInput; }, [headingInput]);
-  useEffect(() => { announcedRef.current = announcedHeading; }, [announcedHeading]); 
+  useEffect(() => { currentTaskRef.current = currentTask; }, [currentTask]);
+
+  // ── Sync score to parent ──────────────────────────────────────────────────
   useEffect(() => {
     if (callsignStats.total === 0) {
-      setCallsignScore(50); // default starting display
+      setCallsignScore(50);
       return;
     }
     setCallsignScore((callsignStats.correct / callsignStats.total) * 100);
   }, [callsignStats, setCallsignScore]);
 
   // ── Core speak function ───────────────────────────────────────────────────
-  const speakCall = (cs, heading) => {
+  const speakCall = (cs, task) => {
     if (!("speechSynthesis" in window)) return false;
 
-    pendingRef.current = { cs, heading };
+    pendingRef.current = { cs, task };
 
     if (!speechUnlockedRef.current) return false;
 
@@ -77,8 +97,11 @@ export default function CallsignTile({ screen, running, setCallsignScore, setFee
     synth.cancel();
     synth.resume();
 
-    const text = `${toPhonetic(cs)}, new heading, ${toPhonetic(heading)}`;
-    const utt  = new SpeechSynthesisUtterance(text);
+    // Build text based on task type
+    const prefix = task.type === "heading" ? "new heading" : "flight level";
+    const text = `${toPhonetic(cs)}, ${prefix}, ${digitsToSpoken(task.value)}`;
+
+    const utt = new SpeechSynthesisUtterance(text);
 
     const voices = voicesRef.current.length ? voicesRef.current : synth.getVoices();
     const preferred =
@@ -89,12 +112,12 @@ export default function CallsignTile({ screen, running, setCallsignScore, setFee
     if (preferred) { utt.voice = preferred; utt.lang = preferred.lang; }
     else            { utt.lang = "en-US"; }
 
-    utt.rate   = 0.70;  // slightly slower than normal
+    utt.rate   = 0.70;
     utt.pitch  = 1;
     utt.volume = 1;
 
     utt.onend = () => {
-      if (pendingRef.current?.cs === cs && pendingRef.current?.heading === heading) {
+      if (pendingRef.current?.cs === cs && pendingRef.current?.task?.value === task.value) {
         pendingRef.current = null;
       }
     };
@@ -126,8 +149,8 @@ export default function CallsignTile({ screen, running, setCallsignScore, setFee
       warmup.onend  = () => {
         unlockInProgressRef.current = false;
         if (pendingRef.current) {
-          const { cs, heading } = pendingRef.current;
-          setTimeout(() => speakCall(cs, heading), 150);
+          const { cs, task } = pendingRef.current;
+          setTimeout(() => speakCall(cs, task), 150);
         }
       };
       synth.cancel();
@@ -144,104 +167,105 @@ export default function CallsignTile({ screen, running, setCallsignScore, setFee
     };
   }, []);
 
-  // ── Pause: cancel speech when not running ─────────────────────────────────
-useEffect(() => {
-  if (!("speechSynthesis" in window)) return;
-  const synth = window.speechSynthesis;
-
-  if (!running) {
-    synth.pause();       // freeze mid-utterance
-  } else {
-    synth.resume();      // continue from where it stopped
-  }
-}, [running]);
+  // ── Pause/Resume speech ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+    const synth = window.speechSynthesis;
+    if (!running) synth.pause();
+    else          synth.resume();
+  }, [running]);
 
   // ── Schedule next call ────────────────────────────────────────────────────
   useEffect(() => {
-    if (screen !== "live" || !running || announcedHeading) return;
+    if (screen !== "live" || !running || currentTask) return;
 
-    const delay = lastHeadingRef.current ? Math.random() * 4000 + 7000 : 2600;
+    const delay = lastValueRef.current ? Math.random() * 4000 + 7000 : 2600;
 
     const timer = setTimeout(() => {
-      const options     = HEADING_POOL.filter((v) => v !== lastHeadingRef.current);
-      const nextHeading = options[Math.floor(Math.random() * options.length)];
-      const nextCS      = generateCallsign(lastCallsignRef.current);
+      const nextTask = generateTask(lastValueRef.current);
+      const nextCS   = generateCallsign(lastCallsignRef.current);
 
-      lastHeadingRef.current  = nextHeading;
+      lastValueRef.current    = nextTask.value;
       lastCallsignRef.current = nextCS;
-      answeredRef.current     = false; // reset for new call
+      answeredRef.current     = false;
 
       setCallsign(nextCS);
-      setAnnouncedHeading(nextHeading);
+      setCurrentTask(nextTask);
       setHeadingInput("");
-      //speakCall(nextCS, nextHeading);
 
-      const spoken = speakCall(nextCS, nextHeading);
+      const spoken = speakCall(nextCS, nextTask);
 
-// Speech was blocked? Keep trying every 200ms
-if (!spoken) {
-  const retry = setInterval(() => {
-    if (speechUnlockedRef.current) {
-      speakCall(nextCS, nextHeading);  // try again
-      clearInterval(retry);            // stop retrying
-    }
-  }, 200);
-  setTimeout(() => clearInterval(retry), 4000); // give up after 4 sec
-}
+      if (!spoken) {
+        const retry = setInterval(() => {
+          if (speechUnlockedRef.current) {
+            speakCall(nextCS, nextTask);
+            clearInterval(retry);
+          }
+        }, 200);
+        setTimeout(() => clearInterval(retry), 4000);
+      }
 
       setTimeout(() => inputRef.current?.focus(), 100);
     }, delay);
 
     return () => clearTimeout(timer);
-  }, [screen, running, announcedHeading]);
+  }, [screen, running, currentTask]);
 
   // ── Response timeout (missed) ─────────────────────────────────────────────
+  // ── Response timeout (missed) ─────────────────────────────────────────────
   useEffect(() => {
-    if (screen !== "live" || !running || !announcedHeading) return;
+    if (screen !== "live" || !running || !currentTask) return;
 
     const timer = setTimeout(() => {
-      if (answeredRef.current) return; // user already answered — skip miss
-      answeredRef.current = true;   
+      if (answeredRef.current) return;
+      answeredRef.current = true;
+
+      // Read the task type from ref to show the right label
+      const missedTask = currentTaskRef.current;
+      const taskLabel = missedTask?.type === "heading" ? "New Heading" : "Flight Level";
+
       setCallsignStats((prev) => ({
         ...prev,
         missed: prev.missed + 1,
         total:  prev.total  + 1,
       }));
-      setFeedback({ text: "Heading call: Response missed", tone: "yellow" });
+      setFeedback({ text: `${taskLabel}: Response missed`, tone: "yellow" });
       setHeadingInput("");
-      setAnnouncedHeading("");
+      setCurrentTask(null);
     }, 10000);
 
     return () => clearTimeout(timer);
-  }, [screen, running, announcedHeading]);
+  }, [screen, running, currentTask]);
 
   // ── Submit answer ─────────────────────────────────────────────────────────
   const submit = () => {
-  const currentHeading = announcedRef.current;
-  if (!currentHeading) return;
-  answeredRef.current = true;
+    const task = currentTaskRef.current;
+    if (!task) return;
+    answeredRef.current = true;
 
-  const typed     = headingInputRef.current.trim();
-  const isCorrect = typed === currentHeading;
+    const typed     = headingInputRef.current.trim();
+    const isCorrect = typed === task.value;
 
-  console.log("SUBMIT:", { typed, expected: currentHeading, isCorrect }); // debug
+    const taskLabel = task.type === "heading" ? "Heading" : "Flight Level";
 
-  setCallsignStats((prev) => ({
-    correct: prev.correct + (isCorrect ? 1 : 0),
-    wrong:   prev.wrong   + (isCorrect ? 0 : 1),
-    missed:  prev.missed,
-    total:   prev.total   + 1,
-  }));
+    console.log("SUBMIT:", { typed, expected: task.value, type: task.type, isCorrect });
+
+    setCallsignStats((prev) => ({
+      correct: prev.correct + (isCorrect ? 1 : 0),
+      wrong:   prev.wrong   + (isCorrect ? 0 : 1),
+      missed:  prev.missed,
+      total:   prev.total   + 1,
+    }));
 
     setFeedback({
       text: isCorrect
-        ? `Heading call: Correct response ${typed}`
-        : `Heading call: Wrong response ${typed || "---"}`,
+        ? `${taskLabel}: Correct response ${typed}`
+        : `${taskLabel}: Wrong response ${typed || "---"}`,
       tone: isCorrect ? "green" : "red",
     });
 
     setHeadingInput("");
-    setAnnouncedHeading("");
+    setCurrentTask(null);
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -254,7 +278,7 @@ if (!spoken) {
           {callsign}
         </div>
 
-        <div className="mt-[38px] text-[21px] font-bold">New heading:</div>
+        <div className="mt-[38px] text-[21px] font-bold">New Heading / Flight Level:</div>
 
         <input
           ref={inputRef}
@@ -264,7 +288,7 @@ if (!spoken) {
           onChange={(e) => setHeadingInput(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
           onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
           className={`mt-3 h-[48px] w-[160px] border-[3px] border-[#5b5b5b] text-center text-[26px] font-semibold text-black outline-none ${
-            announcedHeading || headingInput ? "bg-[#fff200]" : "bg-white"
+            currentTask || headingInput ? "bg-[#fff200]" : "bg-white"
           }`}
           placeholder=""
         />
@@ -273,5 +297,3 @@ if (!spoken) {
     </div>
   );
 }
-
-
