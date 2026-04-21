@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, BellRing, Expand, Pencil, Radio, Target } from "lucide-react";
+//import { ArrowLeft, BellRing, Expand, Pencil, Radio, Target } from "lucide-react";
+import { ArrowLeft, BellRing, Clock, Expand, Pencil, Radio, Target } from "lucide-react";
 
 import { clamp, rand } from "./app/utils/math";
 import Screw from "./app/common/Screw";
@@ -334,16 +335,23 @@ const drainingIndexes = activeTankIndexes.filter((i) => i !== currentlyRefilling
     <div className="h-screen overflow-hidden bg-[#4d5565] text-white">
       <div className="mx-auto flex h-full max-w-[1660px] flex-col px-[56px] pb-[34px] pt-[10px]">
         <div className="flex h-[112px] items-start justify-end">
-          <div className="flex items-center gap-[10px] rounded-bl-[26px] rounded-br-[10px] bg-[#315fc0] px-[28px] py-[10px] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
-            <div className="min-w-[188px] text-[20px] font-bold tracking-[0.01em] text-white">Time: {timeLabel}</div>
-            <button onClick={() => setRunning((prev) => !prev)} className="min-w-[124px] rounded-[10px] bg-[#f4f4f4] px-6 py-[9px] text-[17px] font-bold text-[#2f2f2f] shadow-[0_1px_0_rgba(0,0,0,0.1)] hover:bg-white">
-              {running ? "Pause" : "Resume"}
-            </button>
-            <button onClick={() => setScreen("intro")} className="min-w-[104px] rounded-[10px] bg-[#f4f4f4] px-6 py-[9px] text-[17px] font-bold text-[#2f2f2f] shadow-[0_1px_0_rgba(0,0,0,0.1)] hover:bg-white">
-              Exit
-            </button>
-          </div>
-        </div>
+  <div className="flex items-center gap-[10px] px-[10px] py-[10px]">
+    <div className="inline-flex items-center gap-[8px] rounded-full border border-[#d9e2ef] bg-[#eff4fa] px-[16px] py-[8px] text-[16px] font-medium tracking-[0.01em] text-[#315fc0]">
+  <Clock className="h-[16px] w-[16px]" />
+  <span className="tabular-nums">Time: {timeLabel}</span>
+</div>
+    <button
+      onClick={() => setRunning((prev) => !prev)}
+      className="inline-flex min-w-[110px] items-center justify-center rounded-full border border-[#d9e2ef] bg-[#eff4fa] px-[18px] py-[8px] text-[16px] font-medium text-[#315fc0] hover:bg-white"    >
+      {running ? "Pause" : "Resume"}
+    </button>
+    <button
+      onClick={() => setScreen("intro")}
+className="inline-flex min-w-[90px] items-center justify-center rounded-full border border-[#d9e2ef] bg-[#eff4fa] px-[18px] py-[8px] text-[16px] font-medium text-[#315fc0] hover:bg-white"    >
+      Exit
+    </button>
+  </div>
+</div>
 
         <div className="mx-auto flex flex-1 w-full max-w-[1490px] flex-col justify-center gap-[26px]">
           <div className="relative rounded-[18px] bg-[linear-gradient(90deg,#151923,#2b2f39,#151923)] p-[18px] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
@@ -360,9 +368,9 @@ const drainingIndexes = activeTankIndexes.filter((i) => i !== currentlyRefilling
 
             {!running ? (
               <div className="pointer-events-none absolute inset-0 z-[30] flex items-center justify-center rounded-[18px] bg-[rgba(26,31,40,0.18)]">
-                <div className="min-w-[520px] bg-[#315fc0] px-[34px] py-[12px] text-center text-[26px] font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]">
-                  Pause
-                </div>
+               <div className="min-w-[520px] rounded-full border border-[#d9e2ef] bg-[#eff4fa] px-[34px] py-[12px] text-center text-[26px] font-semibold text-[#315fc0]">
+  Pause
+</div>
               </div>
             ) : null}
 

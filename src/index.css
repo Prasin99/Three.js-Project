@@ -9,6 +9,8 @@ body,
   padding: 0;
 }
 
-body {
+/* body {
   font-family: Arial, sans-serif;
-}
+} */
+
+body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
