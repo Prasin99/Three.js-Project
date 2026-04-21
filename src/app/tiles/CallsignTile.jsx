@@ -16,12 +16,12 @@ function toPhonetic(str) {
   return str.toUpperCase().split("").map((ch) => NATO[ch] ?? ch).join(" ");
 }
 
-// Spoken digits for numbers: "275" -> "two seven five"
 function digitsToSpoken(numStr) {
   return numStr.split("").map((d) => NATO[d] ?? d).join(" ");
 }
 
-function generateCallsign(exclude = "") {
+// Exported so App.jsx can generate + persist the student's fixed callsign.
+export function generateCallsign(exclude = "") {
   const L = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   let cs;
   do {
@@ -35,16 +35,13 @@ function generateCallsign(exclude = "") {
   return cs;
 }
 
-// ── NEW: generate the task (type + value) ─────────────────────────────────────
 function generateTask(lastValue = "") {
   const isHeading = Math.random() < 0.5;
   let value;
   do {
     if (isHeading) {
-      // Heading: 100–360
       value = String(Math.floor(Math.random() * (360 - 100 + 1)) + 100);
     } else {
-      // Flight Level: 50–410
       value = String(Math.floor(Math.random() * (410 - 50 + 1)) + 50);
     }
   } while (value === lastValue);
@@ -55,16 +52,22 @@ function generateTask(lastValue = "") {
   };
 }
 
+// Probability that any given call is addressed to the student's own callsign.
+// Remaining calls are distractors (different callsigns) that must be ignored.
+const OWN_CALL_RATIO = 0.4;
+
+// Score step size: each correct response adds this, each wrong/missed subtracts this.
+const SCORE_STEP = 20;
+
 // ─────────────────────────────────────────────────────────────────────────────
-export default function CallsignTile({ screen, running, setCallsignScore, setFeedback }) {
-  const [callsign, setCallsign]             = useState("");
-  const [currentTask, setCurrentTask]       = useState(null); // { type, value } or null
+export default function CallsignTile({ screen, running, setCallsignScore, setFeedback, assignedCallsign }) {
+  const [currentTask, setCurrentTask]       = useState(null); // { type, value } or null — only set for OWN calls
+  const [distractorActive, setDistractorActive] = useState(false); // true during a distractor window
   const [headingInput, setHeadingInput]     = useState("");
   const [callsignStats, setCallsignStats]   = useState({ correct: 0, wrong: 0, missed: 0, total: 0 });
 
   const inputRef            = useRef(null);
   const lastValueRef        = useRef("");
-  const lastCallsignRef     = useRef("");
   const speechUnlockedRef   = useRef(false);
   const pendingRef          = useRef(null);
   const voicesRef           = useRef([]);
@@ -72,24 +75,22 @@ export default function CallsignTile({ screen, running, setCallsignScore, setFee
   const answeredRef         = useRef(false);
   const headingInputRef     = useRef("");
   const currentTaskRef      = useRef(null);
+  const distractorActiveRef = useRef(false);
 
   useEffect(() => { headingInputRef.current = headingInput; }, [headingInput]);
   useEffect(() => { currentTaskRef.current = currentTask; }, [currentTask]);
+  useEffect(() => { distractorActiveRef.current = distractorActive; }, [distractorActive]);
 
-  // ── Sync score to parent ──────────────────────────────────────────────────
-  useEffect(() => {
-    if (callsignStats.total === 0) {
-      setCallsignScore(50);
-      return;
-    }
-    setCallsignScore((callsignStats.correct / callsignStats.total) * 100);
-  }, [callsignStats, setCallsignScore]);
+  // ── Step-based score adjustment (clamped 0..100) ──────────────────────────
+  const adjustScore = (delta) =>
+    setCallsignScore((s) => Math.max(0, Math.min(100, s + delta)));
 
   // ── Core speak function ───────────────────────────────────────────────────
-  const speakCall = (cs, task) => {
+  // spokenCs = the callsign to ANNOUNCE (own or distractor); displayed callsign is always the fixed one.
+  const speakCall = (spokenCs, task) => {
     if (!("speechSynthesis" in window)) return false;
 
-    pendingRef.current = { cs, task };
+    pendingRef.current = { cs: spokenCs, task };
 
     if (!speechUnlockedRef.current) return false;
 
@@ -97,9 +98,8 @@ export default function CallsignTile({ screen, running, setCallsignScore, setFee
     synth.cancel();
     synth.resume();
 
-    // Build text based on task type
     const prefix = task.type === "heading" ? "new heading" : "flight level";
-    const text = `${toPhonetic(cs)}, ${prefix}, ${digitsToSpoken(task.value)}`;
+    const text = `${toPhonetic(spokenCs)}, ${prefix}, ${digitsToSpoken(task.value)}`;
 
     const utt = new SpeechSynthesisUtterance(text);
 
@@ -117,7 +117,7 @@ export default function CallsignTile({ screen, running, setCallsignScore, setFee
     utt.volume = 1;
 
     utt.onend = () => {
-      if (pendingRef.current?.cs === cs && pendingRef.current?.task?.value === task.value) {
+      if (pendingRef.current?.cs === spokenCs && pendingRef.current?.task?.value === task.value) {
         pendingRef.current = null;
       }
     };
@@ -175,30 +175,37 @@ export default function CallsignTile({ screen, running, setCallsignScore, setFee
     else          synth.resume();
   }, [running]);
 
-  // ── Schedule next call ────────────────────────────────────────────────────
+  // ── Schedule next call (own or distractor) ───────────────────────────────
   useEffect(() => {
-    if (screen !== "live" || !running || currentTask) return;
+    if (screen !== "live" || !running) return;
+    if (currentTask || distractorActive) return; // a window is already open
 
     const delay = lastValueRef.current ? Math.random() * 4000 + 7000 : 2600;
 
     const timer = setTimeout(() => {
       const nextTask = generateTask(lastValueRef.current);
-      const nextCS   = generateCallsign(lastCallsignRef.current);
+      const isOwnCall = Math.random() < OWN_CALL_RATIO;
 
-      lastValueRef.current    = nextTask.value;
-      lastCallsignRef.current = nextCS;
-      answeredRef.current     = false;
+      const spokenCs = isOwnCall
+        ? assignedCallsign
+        : generateCallsign(assignedCallsign); // never collides with student's own
 
-      setCallsign(nextCS);
-      setCurrentTask(nextTask);
+      lastValueRef.current = nextTask.value;
+      answeredRef.current  = false;
+
+      if (isOwnCall) {
+        setCurrentTask(nextTask);
+      } else {
+        setDistractorActive(true);
+      }
       setHeadingInput("");
 
-      const spoken = speakCall(nextCS, nextTask);
+      const spoken = speakCall(spokenCs, nextTask);
 
       if (!spoken) {
         const retry = setInterval(() => {
           if (speechUnlockedRef.current) {
-            speakCall(nextCS, nextTask);
+            speakCall(spokenCs, nextTask);
             clearInterval(retry);
           }
         }, 200);
@@ -209,73 +216,107 @@ export default function CallsignTile({ screen, running, setCallsignScore, setFee
     }, delay);
 
     return () => clearTimeout(timer);
-  }, [screen, running, currentTask]);
+  }, [screen, running, currentTask, distractorActive, assignedCallsign]);
 
-  // ── Response timeout (missed) ─────────────────────────────────────────────
-  // ── Response timeout (missed) ─────────────────────────────────────────────
+  // ── Response timeout ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (screen !== "live" || !running || !currentTask) return;
+    if (screen !== "live" || !running) return;
+    if (!currentTask && !distractorActive) return;
 
     const timer = setTimeout(() => {
       if (answeredRef.current) return;
       answeredRef.current = true;
 
-      // Read the task type from ref to show the right label
-      const missedTask = currentTaskRef.current;
-      const taskLabel = missedTask?.type === "heading" ? "New Heading" : "Flight Level";
+      if (currentTaskRef.current) {
+        // Own call — missed response counts against the student
+        const missedTask = currentTaskRef.current;
+        const taskLabel = missedTask.type === "heading" ? "New Heading" : "Flight Level";
 
-      setCallsignStats((prev) => ({
-        ...prev,
-        missed: prev.missed + 1,
-        total:  prev.total  + 1,
-      }));
-      setFeedback({ text: `${taskLabel}: Response missed`, tone: "yellow" });
+        setCallsignStats((prev) => ({
+          ...prev,
+          missed: prev.missed + 1,
+          total:  prev.total  + 1,
+        }));
+        adjustScore(-SCORE_STEP);
+        setFeedback({ text: `${taskLabel}: Response missed`, tone: "yellow" });
+        setCurrentTask(null);
+      } else if (distractorActiveRef.current) {
+        // Distractor correctly ignored — silent pass, no score change, no feedback
+        setDistractorActive(false);
+      }
+
       setHeadingInput("");
-      setCurrentTask(null);
     }, 10000);
 
     return () => clearTimeout(timer);
-  }, [screen, running, currentTask]);
+  }, [screen, running, currentTask, distractorActive, setFeedback]);
 
   // ── Submit answer ─────────────────────────────────────────────────────────
   const submit = () => {
-    const task = currentTaskRef.current;
-    if (!task) return;
-    answeredRef.current = true;
+    // Own-call response window open → evaluate normally
+    if (currentTaskRef.current) {
+      const task = currentTaskRef.current;
+      answeredRef.current = true;
 
-    const typed     = headingInputRef.current.trim();
-    const isCorrect = typed === task.value;
+      const typed     = headingInputRef.current.trim();
+      const isCorrect = typed === task.value;
+      const taskLabel = task.type === "heading" ? "Heading" : "Flight Level";
 
-    const taskLabel = task.type === "heading" ? "Heading" : "Flight Level";
+      setCallsignStats((prev) => ({
+        correct: prev.correct + (isCorrect ? 1 : 0),
+        wrong:   prev.wrong   + (isCorrect ? 0 : 1),
+        missed:  prev.missed,
+        total:   prev.total   + 1,
+      }));
+      adjustScore(isCorrect ? SCORE_STEP : -SCORE_STEP);
 
-    console.log("SUBMIT:", { typed, expected: task.value, type: task.type, isCorrect });
+      setFeedback({
+        text: isCorrect
+          ? `${taskLabel}: Correct response ${typed}`
+          : `${taskLabel}: Wrong response ${typed || "---"}`,
+        tone: isCorrect ? "green" : "red",
+      });
 
-    setCallsignStats((prev) => ({
-      correct: prev.correct + (isCorrect ? 1 : 0),
-      wrong:   prev.wrong   + (isCorrect ? 0 : 1),
-      missed:  prev.missed,
-      total:   prev.total   + 1,
-    }));
+      setHeadingInput("");
+      setCurrentTask(null);
+      return;
+    }
 
-    setFeedback({
-      text: isCorrect
-        ? `${taskLabel}: Correct response ${typed}`
-        : `${taskLabel}: Wrong response ${typed || "---"}`,
-      tone: isCorrect ? "green" : "red",
-    });
+    // Distractor window open → any submission is a false alarm
+    if (distractorActiveRef.current) {
+      answeredRef.current = true;
 
-    setHeadingInput("");
-    setCurrentTask(null);
+      setCallsignStats((prev) => ({
+        correct: prev.correct,
+        wrong:   prev.wrong + 1,
+        missed:  prev.missed,
+        total:   prev.total + 1,
+      }));
+      adjustScore(-SCORE_STEP);
+
+      setFeedback({
+        text: "Not your callsign — should have been ignored",
+        tone: "red",
+      });
+
+      setHeadingInput("");
+      setDistractorActive(false);
+      return;
+    }
+
+    // No window open — ignore stray Enter presses
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
+  const windowOpen = Boolean(currentTask || distractorActive);
+
   return (
     <div className="rounded-[28px] bg-[linear-gradient(180deg,#b0b7c6,#a6afbe)] px-6 py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
       <div className="flex h-full flex-col items-center justify-center text-center text-[#4a4a4a]">
 
         <div className="text-[21px] font-medium">Your callsign:</div>
         <div className="mt-1 text-[28px] font-black tracking-[0.01em] text-[#0b8f00]">
-          {callsign}
+          {assignedCallsign || "—"}
         </div>
 
         <div className="mt-[38px] text-[21px] font-bold">New Heading / Flight Level:</div>
@@ -288,7 +329,7 @@ export default function CallsignTile({ screen, running, setCallsignScore, setFee
           onChange={(e) => setHeadingInput(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
           onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
           className={`mt-3 h-[48px] w-[160px] border-[3px] border-[#5b5b5b] text-center text-[26px] font-semibold text-black outline-none ${
-            currentTask || headingInput ? "bg-[#fff200]" : "bg-white"
+            windowOpen || headingInput ? "bg-[#fff200]" : "bg-white"
           }`}
           placeholder=""
         />

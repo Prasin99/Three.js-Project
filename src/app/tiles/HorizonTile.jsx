@@ -5,7 +5,9 @@ import { clamp, rand } from "../utils/math";
 export default function HorizonTile({ running, onScore }) {
   const mountRef = useRef(null);
   const mouseRef = useRef({ x: 0, y: 0 });
-  const perfRef = useRef({ score: 72 });
+  //const perfRef = useRef({ score: 72 });
+  const perfRef = useRef({ score: 50 });
+
   const runningRef = useRef(running);
   const simTimeRef = useRef(0);
 
