@@ -22,6 +22,7 @@ export default function MultitaskingTestCompetitorStyle() {
   //const [lightsScore, setLightsScore] = useState(52);
   const [lightsScore, setLightsScore] = useState(50);
   const [callsignScore, setCallsignScore] = useState(50);
+  const [hasStarted, setHasStarted] = useState(false);
   // The assigned callsign — loaded from localStorage or generated fresh
   const [assignedCallsign] = useState(() => {
     try {
@@ -45,7 +46,8 @@ export default function MultitaskingTestCompetitorStyle() {
   const [pulse, setPulse] = useState(null);
 
   //const [tanks, setTanks] = useState([78, 100, 100]);
-  const [tanks, setTanks] = useState([50, 50, 50]);
+  //const [tanks, setTanks] = useState([50, 50, 50]);
+  const [tanks, setTanks] = useState([100, 100, 100]);
   const [activeTankIndexes, setActiveTankIndexes] = useState([0]);
   const [refillingTankIndexes, setRefillingTankIndexes] = useState([]);
   const [tankBlinkOn, setTankBlinkOn] = useState(true);
@@ -231,8 +233,10 @@ const drainingIndexes = activeTankIndexes.filter((i) => i !== currentlyRefilling
     const onKeyDown = (event) => {
       if (screen !== "live") return;
       const key = event.key.toLowerCase();
+        if (!hasStarted && ["q", "w", "e", "a", "s", "d", "f"].includes(key)) setHasStarted(true);
 
       if (["q", "w", "e"].includes(key)) {
+
   const index = { q: 0, w: 1, e: 2 }[key];
   setFeedback({ text: "Tank is refilled", tone: "green" });
   setRefillingTankIndexes((prev) => prev.includes(index) ? prev : [...prev, index]);
@@ -267,13 +271,19 @@ const drainingIndexes = activeTankIndexes.filter((i) => i !== currentlyRefilling
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [screen, lightsEvent, activeTankIndexes]);
+  }, [screen, lightsEvent, activeTankIndexes, hasStarted]);
 
   // ── Derived values ─────────────────────────────────────────────────────────
+  // const combinedLightTankScore = useMemo(() => {
+  //   const tankPart = tanks.reduce((sum, tank) => sum + tank, 0) / tanks.length;
+  //   return clamp(tankPart * 0.58 + lightsScore * 0.42, 0, 100);
+  // }, [tanks, lightsScore]);
+
   const combinedLightTankScore = useMemo(() => {
-    const tankPart = tanks.reduce((sum, tank) => sum + tank, 0) / tanks.length;
-    return clamp(tankPart * 0.58 + lightsScore * 0.42, 0, 100);
-  }, [tanks, lightsScore]);
+  if (!hasStarted) return 50;
+  const tankPart = tanks.reduce((sum, tank) => sum + tank, 0) / tanks.length;
+  return clamp(tankPart * 0.58 + lightsScore * 0.42, 0, 100);
+}, [tanks, lightsScore, hasStarted]);
 
   const warningText = useMemo(() => {
     if (tanks.some((level, index) => level < 34 && activeTankIndexes.includes(index) && !refillingTankIndexes.includes(index))) {
